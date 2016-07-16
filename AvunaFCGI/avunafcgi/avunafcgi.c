@@ -19,10 +19,158 @@
 #include <fcntl.h>
 #include "xstring.h"
 #include <sys/types.h>
+#include "xstring.h"
 
-void __fcgi_runWork(struct fcgiconn* fc) {
-	struct fcgiframe frame;
-	struct fcgirequest creq;
+char* fcgi_escapehtml(const char* orig) {
+	size_t len = strlen(orig);
+	size_t clen = len + 1;
+	size_t ioff = 0;
+	char* ns = __fcgi_xmalloc(clen);
+	for (int i = 0; i < len; i++) {
+		if (orig[i] == '&') {
+			clen += 4;
+			ns = __fcgi_xrealloc(ns, clen);
+			ns[i + ioff] = '&';
+			ns[i + ioff++] = 'a';
+			ns[i + ioff++] = 'm';
+			ns[i + ioff++] = 'p';
+			ns[i + ioff++] = ';';
+		} else if (orig[i] == '\"') {
+			clen += 5;
+			ns = __fcgi_xrealloc(ns, clen);
+			ns[i + ioff] = '&';
+			ns[i + ioff++] = 'q';
+			ns[i + ioff++] = 'u';
+			ns[i + ioff++] = 'o';
+			ns[i + ioff++] = 't';
+			ns[i + ioff++] = ';';
+		} else if (orig[i] == '\'') {
+			clen += 5;
+			ns = __fcgi_xrealloc(ns, clen);
+			ns[i + ioff] = '&';
+			ns[i + ioff++] = '#';
+			ns[i + ioff++] = '0';
+			ns[i + ioff++] = '3';
+			ns[i + ioff++] = '9';
+			ns[i + ioff++] = ';';
+		} else if (orig[i] == '<') {
+			clen += 3;
+			ns = __fcgi_xrealloc(ns, clen);
+			ns[i + ioff] = '&';
+			ns[i + ioff++] = 'l';
+			ns[i + ioff++] = 't';
+			ns[i + ioff++] = ';';
+		} else if (orig[i] == '>') {
+			clen += 3;
+			ns = __fcgi_xrealloc(ns, clen);
+			ns[i + ioff] = '&';
+			ns[i + ioff++] = 'g';
+			ns[i + ioff++] = 't';
+			ns[i + ioff++] = ';';
+		} else {
+			ns[i + ioff] = orig[i];
+		}
+	}
+	ns[clen - 1] = 0;
+	return ns;
+}
+
+void __fcgi_freeHeaders(struct fcgi_headers* headers) {
+	if (headers->count > 0) for (int i = 0; i < headers->count; i++) {
+		__fcgi_xfree(headers->names[i]);
+		__fcgi_xfree(headers->values[i]);
+	}
+	if (headers->names != NULL) __fcgi_xfree(headers->names);
+	if (headers->values != NULL) __fcgi_xfree(headers->values);
+	__fcgi_xfree(headers);
+}
+
+const char* fcgi_header_get(const struct fcgi_headers* headers, const char* name) {
+	if (headers->count == 0) return NULL;
+	for (int i = 0; i < headers->count; i++) {
+		if (__fcgi_streq_nocase(headers->names[i], name)) {
+			return headers->values[i];
+		}
+	}
+	return NULL;
+}
+
+int fcgi_header_set(struct fcgi_headers* headers, const char* name, const char* value) {
+	if (headers->count == 0) return -1;
+	for (int i = 0; i < headers->count; i++) {
+		if (__fcgi_streq_nocase(headers->names[i], name)) {
+			size_t vl = strlen(value) + 1;
+			//if (streq_nocase(name, "Content-Type")) {
+			//	printf("ct cur = %s, new = %s, racto = %i\n", headers->values[i], value, vl);
+			//}
+			headers->values[i] = __fcgi_xrealloc(headers->values[i], vl);
+			memcpy(headers->values[i], value, vl);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int fcgi_header_add(struct fcgi_headers* headers, const char* name, const char* value) {
+	headers->count++;
+	if (headers->names == NULL) {
+		headers->names = __fcgi_xmalloc(sizeof(char*));
+		headers->values = __fcgi_xmalloc(sizeof(char*));
+	} else {
+		headers->values = __fcgi_xrealloc(headers->values, sizeof(char*) * headers->count);
+		headers->names = __fcgi_xrealloc(headers->names, sizeof(char*) * headers->count);
+	}
+	int cdl = strlen(name) + 1;
+	int vl = strlen(value) + 1;
+	headers->names[headers->count - 1] = __fcgi_xmalloc(cdl);
+	headers->values[headers->count - 1] = __fcgi_xmalloc(vl);
+	memcpy(headers->names[headers->count - 1], name, cdl);
+	memcpy(headers->values[headers->count - 1], value, vl);
+	return 0;
+}
+
+int fcgi_header_tryadd(struct fcgi_headers* headers, const char* name, const char* value) {
+	if (fcgi_header_get(headers, name) != NULL) return 1;
+	return fcgi_header_add(headers, name, value);
+}
+
+int fcgi_header_setoradd(struct fcgi_headers* headers, const char* name, const char* value) {
+	int r = 0;
+	if (!(r = fcgi_header_set(headers, name, value))) r = fcgi_header_add(headers, name, value);
+	return r;
+}
+
+char* __fcgi_serializeHeaders(struct fcgi_headers* headers, size_t* len) {
+	*len = 0;
+	if (headers->count == 0) {
+		return NULL;
+	}
+	for (int i = 0; i < headers->count; i++) {
+		*len += strlen(headers->names[i]) + strlen(headers->values[i]) + 4;
+	}
+	(*len) += 2;
+	char* ret = __fcgi_xmalloc(*len);
+	int ri = 0;
+	for (int i = 0; i < headers->count; i++) {
+		int nl = strlen(headers->names[i]);
+		int vl = strlen(headers->values[i]);
+		memcpy(ret + ri, headers->names[i], nl);
+		ri += nl;
+		ret[ri++] = ':';
+		ret[ri++] = ' ';
+		memcpy(ret + ri, headers->values[i], vl);
+		ri += vl;
+		ret[ri++] = '\r';
+		ret[ri++] = '\n';
+	}
+	ret[ri++] = '\r';
+	ret[ri++] = '\n';
+	return ret;
+}
+
+void __fcgi_runWork(struct fcgi_conn* fc) {
+	struct fcgi_frame frame;
+	struct fcgi_request creq;
 	creq.params = NULL;
 	creq.stdin = NULL;
 	creq.stdin_size = 0;
@@ -31,7 +179,7 @@ void __fcgi_runWork(struct fcgiconn* fc) {
 	int state = 0;
 	while (!__fcgi_readFCGIFrame(fc->fd, &frame)) {
 		if (frame.type == FCGI_GET_VALUES) {
-			struct fcgiparams* gparams = __fcgi_readFCGIParams(frame.data, frame.len, NULL);
+			struct fcgi_params* gparams = __fcgi_readFCGIParams(frame.data, frame.len, NULL);
 			gparams = __fcgi_calcFCGIParams(gparams);
 			for (size_t i = 0; i < gparams->param_count; i++) {
 				char** param = gparams->params[i];
@@ -78,7 +226,11 @@ void __fcgi_runWork(struct fcgiconn* fc) {
 				}
 				creq.stdout = stdoutp[1];
 				creq.stderr = stderrp[1];
-				(*fc->server->callback)(fc, &creq);
+				struct fcgi_headers hdrs;
+				(*fc->server->callback)(fc, &creq, &hdrs);
+				frame.type = FCGI_STDOUT;
+				frame.data = __fcgi_serializeHeaders(&hdrs, &frame.len);
+				__fcgi_writeFCGIFrame(fc->fd, &frame);
 				fcntl(stdoutp[0], F_SETFL, fcntl(stdoutp[0], F_GETFL, 0) | O_NONBLOCK);
 				fcntl(stderrp[0], F_SETFL, fcntl(stderrp[0], F_GETFL, 0) | O_NONBLOCK);
 				ssize_t x = 0;
@@ -155,7 +307,7 @@ void __fcgi_runWork(struct fcgiconn* fc) {
 	pthread_cancel (pthread_self());;
 }
 
-void __fcgi_runServer(struct fcgiserver* server) {
+void __fcgi_runServer(struct fcgi_server* server) {
 	while (1) {
 		struct sockaddr* addr = __fcgi_xmalloc(sizeof(struct sockaddr_in6));
 		socklen_t len = sizeof(struct sockaddr_in6);
@@ -164,7 +316,7 @@ void __fcgi_runServer(struct fcgiserver* server) {
 			__fcgi_xfree(addr);
 			continue;
 		}
-		struct fcgiconn* fc = __fcgi_xmalloc(sizeof(struct fcgiconn));
+		struct fcgi_conn* fc = __fcgi_xmalloc(sizeof(struct fcgi_conn));
 		fc->fd = fd;
 		fc->addr = addr;
 		fc->addrlen = len;
@@ -174,7 +326,7 @@ void __fcgi_runServer(struct fcgiserver* server) {
 	}
 }
 
-const char* fcgi_getparam(struct fcgiparams* params, const char* name) {
+const char* fcgi_getparam(struct fcgi_params* params, const char* name) {
 	for (size_t i = 0; i < params->param_count; i++) {
 		char** param = params->params[i];
 		if (__fcgi_streq_nocase(param[0], name)) {
@@ -184,7 +336,7 @@ const char* fcgi_getparam(struct fcgiparams* params, const char* name) {
 	return NULL;
 }
 
-struct fcgiserver* fcgi_start(struct sockaddr* addr, socklen_t len, size_t maxConns) {
+struct fcgi_server* fcgi_start(struct sockaddr* addr, socklen_t len, size_t maxConns) {
 	int namespace;
 	if (addr->sa_family == AF_INET) namespace = PF_INET;
 	else if (addr->sa_family == AF_INET6) namespace = PF_INET6;
@@ -193,7 +345,7 @@ struct fcgiserver* fcgi_start(struct sockaddr* addr, socklen_t len, size_t maxCo
 		errno = EINVAL;
 		return NULL;
 	}
-	struct fcgiserver* server = __fcgi_xmalloc(sizeof(struct fcgiserver));
+	struct fcgi_server* server = __fcgi_xmalloc(sizeof(struct fcgi_server));
 	server->callback = NULL;
 	server->fd = socket(namespace, SOCK_STREAM, 0);
 	if (server->fd < 0) {
@@ -214,12 +366,12 @@ struct fcgiserver* fcgi_start(struct sockaddr* addr, socklen_t len, size_t maxCo
 	return server;
 }
 
-int fcgi_sethandler(struct fcgiserver* server, int (*callback)(struct fcgiconn*, struct fcgirequest*)) {
+int fcgi_sethandler(struct fcgi_server* server, int (*callback)(struct fcgi_conn*, struct fcgi_request*, struct fcgi_headers*)) {
 	server->callback = callback;
 	return 0;
 }
 
-int fcgi_stop(struct fcgiserver* server) {
+int fcgi_stop(struct fcgi_server* server) {
 	close(server->fd);
 	pthread_cancel(server->accept);
 	__fcgi_xfree(server);

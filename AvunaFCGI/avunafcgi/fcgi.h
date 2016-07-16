@@ -24,25 +24,25 @@
 #define FCGI_GET_VALUES_RESULT 10
 #define FCGI_UNKNOWN_TYPE 11
 
-struct fcgiframe {
+struct fcgi_frame {
 		unsigned char type;
 		int reqID;
 		size_t len;
 		void* data;
 };
 
-int __fcgi_writeFCGIFrame(int fd, struct fcgiframe* fcgif);
+int __fcgi_writeFCGIFrame(int fd, struct fcgi_frame* fcgif);
 
 int __fcgi_writeFCGIParam(int fd, const char* name, const char* value);
 
-int __fcgi_readFCGIFrame(int fd, struct fcgiframe* fcgif);
+int __fcgi_readFCGIFrame(int fd, struct fcgi_frame* fcgif);
 
-struct fcgiparams* __fcgi_readFCGIParams(unsigned char* data, size_t size, struct fcgiparams* params);
+struct fcgi_params* __fcgi_readFCGIParams(unsigned char* data, size_t size, struct fcgi_params* params);
 
-struct fcgiparams* __fcgi_calcFCGIParams(struct fcgiparams* params);
+struct fcgi_params* __fcgi_calcFCGIParams(struct fcgi_params* params);
 
-int __fcgi_serializeFCGIParams(struct fcgiparams* params, unsigned char** buf, size_t* size);
+int __fcgi_serializeFCGIParams(struct fcgi_params* params, unsigned char** buf, size_t* size);
 
-int __fcgi_freeFCGIParams(struct fcgiparams* params);
+int __fcgi_freeFCGIParams(struct fcgi_params* params);
 
 #endif /* FCGI_H_ */

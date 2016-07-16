@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 
-int __fcgi_writeFCGIFrame(int fd, struct fcgiframe* fcgif) {
+int __fcgi_writeFCGIFrame(int fd, struct fcgi_frame* fcgif) {
 	unsigned char header[8];
 	header[0] = FCGI_VERSION_1;
 	header[1] = fcgif->type;
@@ -50,7 +50,7 @@ int __fcgi_writeFCGIFrame(int fd, struct fcgiframe* fcgif) {
 }
 
 int __fcgi_writeFCGIParam(int fd, const char* name, const char* value) {
-	struct fcgiframe fcgif;
+	struct fcgi_frame fcgif;
 	fcgif.type = FCGI_PARAMS;
 	fcgif.reqID = 0;
 	size_t ml = strlen(name);
@@ -83,9 +83,9 @@ int __fcgi_writeFCGIParam(int fd, const char* name, const char* value) {
 	return __fcgi_writeFCGIFrame(fd, &fcgif);
 }
 
-struct fcgiparams* __fcgi_readFCGIParams(unsigned char* data, size_t size, struct fcgiparams* params) {
+struct fcgi_params* __fcgi_readFCGIParams(unsigned char* data, size_t size, struct fcgi_params* params) {
 	if (params == NULL) {
-		params = __fcgi_xmalloc(sizeof(struct fcgiparams));
+		params = __fcgi_xmalloc(sizeof(struct fcgi_params));
 		params->buf = NULL;
 		params->buf_size = 0;
 		params->param_count = 0;
@@ -102,7 +102,7 @@ struct fcgiparams* __fcgi_readFCGIParams(unsigned char* data, size_t size, struc
 	return params;
 }
 
-struct fcgiparams* __fcgi_calcFCGIParams(struct fcgiparams* params) {
+struct fcgi_params* __fcgi_calcFCGIParams(struct fcgi_params* params) {
 	size_t ci = 0;
 	while (ci < params->buf_size) {
 		uint32_t fnl = 0;
@@ -152,7 +152,7 @@ struct fcgiparams* __fcgi_calcFCGIParams(struct fcgiparams* params) {
 	return params;
 }
 
-int __fcgi_serializeFCGIParams(struct fcgiparams* params, unsigned char** buf, size_t* size) {
+int __fcgi_serializeFCGIParams(struct fcgi_params* params, unsigned char** buf, size_t* size) {
 	*buf = NULL;
 	*size = 0;
 	for (size_t i = 0; i < params->param_count; i++) {
@@ -188,7 +188,7 @@ int __fcgi_serializeFCGIParams(struct fcgiparams* params, unsigned char** buf, s
 	return 0;
 }
 
-int __fcgi_freeFCGIParams(struct fcgiparams* params) {
+int __fcgi_freeFCGIParams(struct fcgi_params* params) {
 	for (size_t i = 0; i < params->param_count; i++) {
 		char** param = params->params[i];
 		__fcgi_xfree(param[0]);
@@ -199,7 +199,7 @@ int __fcgi_freeFCGIParams(struct fcgiparams* params) {
 	return 0;
 }
 
-int __fcgi_readFCGIFrame(int fd, struct fcgiframe* fcgif) {
+int __fcgi_readFCGIFrame(int fd, struct fcgi_frame* fcgif) {
 	unsigned char header[8];
 	int r = 0;
 	while (r < 8) {

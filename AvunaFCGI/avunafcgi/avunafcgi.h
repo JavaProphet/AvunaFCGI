@@ -10,45 +10,63 @@
 
 #include <sys/socket.h>
 
-struct fcgiparams {
+char* fcgi_escapehtml(const char* orig);
+
+struct fcgi_headers {
+		int count;
+		char** names;
+		char** values;
+};
+
+const char* fcgi_header_get(const struct fcgi_headers* headers, const char* name);
+
+int fcgi_header_set(struct fcgi_headers* headers, const char* name, const char* value);
+
+int fcgi_header_add(struct fcgi_headers* headers, const char* name, const char* value);
+
+int fcgi_header_tryadd(struct fcgi_headers* headers, const char* name, const char* value);
+
+int fcgi_header_setoradd(struct fcgi_headers* headers, const char* name, const char* value);
+
+struct fcgi_params {
 		unsigned char* buf;
 		size_t buf_size;
 		char*** params;
 		size_t param_count;
 };
 
-struct fcgiconn {
+struct fcgi_conn {
 		int fd;
 		struct sockaddr* addr;
 		socklen_t addrlen;
-		struct fcgiserver* server;
+		struct fcgi_server* server;
 };
 
-struct fcgirequest {
-		struct fcgiparams* params;
+struct fcgi_request {
+		struct fcgi_params* params;
 		unsigned char* stdin;
 		size_t stdin_size;
 		int stdout;
 		int stderr;
 };
 
-struct fcgiserver {
+struct fcgi_server {
 		int fd;
 		size_t maxConns;
-		int (*callback)(struct fcgiconn*, struct fcgirequest*);
+		int (*callback)(struct fcgi_conn*, struct fcgi_request*, struct fcgi_headers*);
 		pthread_t accept;
 };
 
-const char* fcgi_getparam(struct fcgiparams* params, const char* name);
+const char* fcgi_getparam(struct fcgi_params* params, const char* name);
 
-struct fcgiserver* fcgi_start(struct sockaddr* addr, socklen_t len, size_t maxConns);
+struct fcgi_server* fcgi_start(struct sockaddr* addr, socklen_t len, size_t maxConns);
 
 /*
- * Callback is a pointer to a function which returns an int, -2 on connection failure, -1 on request failure, and 0 on success. It takes a struct fcgiconn* as it's first argument, and a struct fcgirequest* as it's second argument.
+ * Callback is a pointer to a function which returns an int, -2 on connection failure, -1 on request failure, and 0 on success. It takes a struct fcgi_conn* as it's first argument, a struct fcgi_request* as it's second argument, and a struct fcgi_headers* as it's third.
  *
  */
-int fcgi_sethandler(struct fcgiserver* server, int (*callback)(struct fcgiconn*, struct fcgirequest*));
+int fcgi_sethandler(struct fcgi_server* server, int (*callback)(struct fcgi_conn*, struct fcgi_request*, struct fcgi_headers*));
 
-int fcgi_stop(struct fcgiserver* server);
+int fcgi_stop(struct fcgi_server* server);
 
 #endif /* AVUNAFCGI_H_ */
